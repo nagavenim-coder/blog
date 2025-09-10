@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
-
+require 'logger'
+require 'active_support'
 require 'mongoid'
 require 'httparty'
 require 'nokogiri'
@@ -8,14 +9,18 @@ require 'logger'
 require 'aws-sdk-bedrockruntime'
 
 # Configure Mongoid
-Mongoid.load!('mongoid.yml', :development)
+Mongoid.load!('/home/ubuntu/blog/mongoid.yml', :development)
 
 # Movie model - read-only (only title)
-class Movie
-  include Mongoid::Document
-  
-  field :title, type: String
-end
+class MovieTheme
+    include Mongoid::Document
+    include Mongoid::Timestamps
+    store_in  client: "catalog"
+    field :title, type: String
+    field :status, type: String  # edit, publish and unpublish
+    field :friendly_id, type: String
+ end
+
 
 class MovieBlogGenerator
   BEDROCK_MODEL_ID = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
@@ -119,11 +124,10 @@ class MovieBlogGenerator
   def generate_blogs
     @logger.info "Generating blog pages..."
     
-    timestamp = Time.now.strftime('%Y%m%d_%H%M%S')
-    blog_dir = "movie_blogs_#{timestamp}"
+    blog_dir = "movie_blogs"
     Dir.mkdir(blog_dir) unless Dir.exist?(blog_dir)
     
-    Movie.each do |movie|
+     MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie", :is_red_hot => false, :is_google_watch_feed => true).limit(1).to_a.each do |movie|
       @logger.info "Processing: #{movie.title}"
       
       # Search for movie details using Serper API
@@ -142,7 +146,7 @@ class MovieBlogGenerator
     end
     
     # Generate index
-    index_html = build_index_page(blog_dir)
+    index_html = build_index_page
     File.write("#{blog_dir}/index.html", index_html)
     
     @logger.info "All blogs saved in: #{blog_dir}"
@@ -237,8 +241,8 @@ class MovieBlogGenerator
     HTML
   end
 
-  def build_index_page(blog_dir)
-    movies_html = Movie.all.map do |movie|
+  def build_index_page
+    movies_html = Movietheme.all.map do |movie|
       "<div class='movie-card p-4 border rounded'><h3><a href='#{movie.title.parameterize}-2020.html'>#{movie.title}</a></h3><p>Movie Blog</p></div>"
     end.join
 
