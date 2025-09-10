@@ -14,17 +14,14 @@ Mongoid.load!('/home/ubuntu/blog/mongoid.yml', :development)
 # Movie model - read-only (only title)
 class MovieTheme
     include Mongoid::Document
-    include Mongoid::Timestamps
-    store_in  client: "catalog"
+    store_in client: "catalog"
     field :title, type: String
-    field :status, type: String  # edit, publish and unpublish
-    field :friendly_id, type: String
- end
+end
 
 
 class MovieBlogGenerator
   BEDROCK_MODEL_ID = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
-  SERPER_API_KEY = ENV['SERPER_API_KEY'] || 'YOUR_SERPER_API_KEY_HERE'
+  SERPER_API_KEY = "9f0b257743ae72345ad180af47b97fd8e1e06796"
   
   def initialize
     @logger = Logger.new(STDOUT)
@@ -127,7 +124,7 @@ class MovieBlogGenerator
     blog_dir = "movie_blogs"
     Dir.mkdir(blog_dir) unless Dir.exist?(blog_dir)
     
-     MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie", :is_red_hot => false, :is_google_watch_feed => true).limit(1).to_a.each do |movie|
+    MovieTheme.only(:title).limit(1).each do |movie|
       @logger.info "Processing: #{movie.title}"
       
       # Search for movie details using Serper API
@@ -242,7 +239,7 @@ class MovieBlogGenerator
   end
 
   def build_index_page
-    movies_html = Movietheme.all.map do |movie|
+    movies_html = MovieTheme.only(:title).map do |movie|
       "<div class='movie-card p-4 border rounded'><h3><a href='#{movie.title.parameterize}-2020.html'>#{movie.title}</a></h3><p>Movie Blog</p></div>"
     end.join
 
