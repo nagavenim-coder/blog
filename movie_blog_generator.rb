@@ -10,7 +10,7 @@ require 'aws-sdk-bedrockruntime'
 # Configure Mongoid
 Mongoid.load!('mongoid.yml', :development)
 
-# Movie model
+# Movie model - read-only
 class Movie
   include Mongoid::Document
   
@@ -26,30 +26,6 @@ class Movie
   field :director, type: String
   field :poster_url, type: String
   field :watch_url, type: String
-  field :meta_description, type: String
-  field :meta_keywords, type: String
-  field :seo_synopsis, type: String
-  field :why_watch, type: String
-  field :seo_hashtags, type: Array, default: []
-  field :scrapped_date, type: Date
-  field :last_updated, type: Date
-  
-  index({ movie_id: 1 }, { unique: true })
-  index({ title: 1 })
-  index({ genre: 1 })
-end
-
-# Review model
-class Review
-  include Mongoid::Document
-  
-  field :author, type: String
-  field :rating, type: Float
-  field :content, type: String
-  field :date, type: Date
-  field :source, type: String
-  
-  belongs_to :movie
 end
 
 class MovieBlogGenerator
@@ -60,62 +36,55 @@ class MovieBlogGenerator
     @bedrock = Aws::BedrockRuntime::Client.new(region: 'us-east-1')
   end
 
-  def generate_reviews
-    @logger.info "Generating reviews..."
-    
-    Movie.each do |movie|
-      next if movie.reviews.exists?
-      
-      3.times do |i|
-        Review.create!(
-          movie: movie,
-          author: "Reviewer#{i+1}",
-          rating: rand(2.0..5.0).round(1),
-          content: "Great #{movie.genre} movie with excellent performances.",
-          date: rand(30).days.ago,
-          source: 'Generated'
-        )
-      end
+  def generate_reviews(movie)
+    reviews = []
+    3.times do |i|
+      reviews << {
+        author: "Reviewer#{i+1}",
+        rating: rand(2.0..5.0).round(1),
+        content: "Great #{movie.genre} movie with excellent performances.",
+        date: rand(30).days.ago
+      }
     end
+    reviews
   end
 
-  def enhance_with_ai
-    @logger.info "Enhancing movies with AI..."
-    
-    Movie.where(why_watch: nil).each do |movie|
-      why_watch = generate_why_watch(movie)
-      movie.update(why_watch: why_watch) if why_watch
-      
-      hashtags = generate_hashtags(movie)
-      movie.update(seo_hashtags: hashtags) if hashtags&.any?
-      
-      synopsis = rewrite_synopsis(movie)
-      movie.update(seo_synopsis: synopsis) if synopsis
-      
-      sleep(2)
-    end
+  def enhance_with_ai(movie)
+    {
+      why_watch: generate_why_watch(movie),
+      seo_hashtags: generate_hashtags(movie),
+      seo_synopsis: rewrite_synopsis(movie)
+    }
   end
 
   def generate_blogs
     @logger.info "Generating blog pages..."
     
-    Dir.mkdir('blogs') unless Dir.exist?('blogs')
+    timestamp = Time.now.strftime('%Y%m%d_%H%M%S')
+    blog_dir = "movie_blogs_#{timestamp}"
+    Dir.mkdir(blog_dir) unless Dir.exist?(blog_dir)
     
     Movie.each do |movie|
-      html = build_movie_blog(movie)
+      reviews = generate_reviews(movie)
+      ai_content = enhance_with_ai(movie)
+      
+      html = build_movie_blog(movie, reviews, ai_content)
       filename = "#{movie.title.parameterize}-#{movie.year}.html"
-      File.write("blogs/#{filename}", html)
+      File.write("#{blog_dir}/#{filename}", html)
+      
+      @logger.info "Generated blog for: #{movie.title}"
+      sleep(2)
     end
     
     # Generate index
-    index_html = build_index_page
-    File.write('blogs/index.html', index_html)
+    index_html = build_index_page(blog_dir)
+    File.write("#{blog_dir}/index.html", index_html)
+    
+    @logger.info "All blogs saved in: #{blog_dir}"
   end
 
   def run_pipeline
     @logger.info "Starting pipeline with existing MongoDB data..."
-    generate_reviews
-    enhance_with_ai
     generate_blogs
     @logger.info "Pipeline completed!"
   end
@@ -160,9 +129,9 @@ class MovieBlogGenerator
     nil
   end
 
-  def build_movie_blog(movie)
-    reviews_html = movie.reviews.map do |review|
-      "<div class='review'><h4>#{review.author} (#{review.rating}/5)</h4><p>#{review.content}</p></div>"
+  def build_movie_blog(movie, reviews, ai_content)
+    reviews_html = reviews.map do |review|
+      "<div class='review'><h4>#{review[:author]} (#{review[:rating]}/5)</h4><p>#{review[:content]}</p></div>"
     end.join
 
     <<~HTML
@@ -170,7 +139,7 @@ class MovieBlogGenerator
       <html>
       <head>
         <title>#{movie.title} (#{movie.year})</title>
-        <meta name="description" content="#{movie.meta_description}">
+        <meta name="description" content="Watch #{movie.title} (#{movie.year}) - #{movie.genre} movie">
         <script src="https://cdn.tailwindcss.com"></script>
       </head>
       <body class="bg-gray-100">
@@ -186,9 +155,9 @@ class MovieBlogGenerator
               <p class="mb-4"><strong>Cast:</strong> #{movie.cast.join(', ')}</p>
               <div class="mb-6">
                 <h2 class="text-2xl font-bold mb-2">Synopsis</h2>
-                <p>#{movie.seo_synopsis || movie.plot}</p>
+                <p>#{ai_content[:seo_synopsis] || movie.plot}</p>
               </div>
-              #{movie.why_watch ? "<div class='mb-6'><h2 class='text-2xl font-bold mb-2'>Why You Should Watch</h2><p>#{movie.why_watch}</p></div>" : ''}
+              #{ai_content[:why_watch] ? "<div class='mb-6'><h2 class='text-2xl font-bold mb-2'>Why You Should Watch</h2><p>#{ai_content[:why_watch]}</p></div>" : ''}
               <a href="#{movie.watch_url}" class="bg-blue-600 text-white px-6 py-3 rounded-lg">Watch Now</a>
             </div>
           </div>
@@ -196,14 +165,14 @@ class MovieBlogGenerator
             <h2 class="text-2xl font-bold mb-4">Reviews</h2>
             #{reviews_html}
           </div>
-          #{movie.seo_hashtags.any? ? "<div class='mt-8'><h3 class='text-xl font-bold mb-2'>Hashtags</h3><p>#{movie.seo_hashtags.join(' ')}</p></div>" : ''}
+          #{ai_content[:seo_hashtags]&.any? ? "<div class='mt-8'><h3 class='text-xl font-bold mb-2'>Hashtags</h3><p>#{ai_content[:seo_hashtags].join(' ')}</p></div>" : ''}
         </div>
       </body>
       </html>
     HTML
   end
 
-  def build_index_page
+  def build_index_page(blog_dir)
     movies_html = Movie.all.map do |movie|
       "<div class='movie-card p-4 border rounded'><h3><a href='#{movie.title.parameterize}-#{movie.year}.html'>#{movie.title} (#{movie.year})</a></h3><p>#{movie.genre}</p></div>"
     end.join
