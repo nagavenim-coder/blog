@@ -179,7 +179,8 @@ class MovieBlogGenerator
     blog_dir = "movie_blogs"
     Dir.mkdir(blog_dir) unless Dir.exist?(blog_dir)
     
-    MovieTheme.only(:title).limit(1).each do |movie|
+ #   MovieTheme.only(:title).limit(1).each do |movie|
+   MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie", :is_red_hot => false, :is_google_watch_feed => true).to_a.each do |movie|
       @logger.info "Processing: #{movie.title}"
       
       # Search for movie details using Serper API
