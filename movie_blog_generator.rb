@@ -31,18 +31,39 @@ class MovieBlogGenerator
   def search_movie_details(title)
     query = "#{title} movie plot cast director year genre"
     
-    response = HTTParty.post('https://google.serper.dev/search',
-      headers: {
-        'X-API-KEY' => SERPER_API_KEY,
-        'Content-Type' => 'application/json'
-      },
-      body: { q: query }.to_json
-    )
-    
-    return {} unless response.success?
-    
-    results = JSON.parse(response.body)
-    extract_movie_info_from_results(title, results)
+    begin
+      response = HTTParty.post('https://google.serper.dev/search',
+        headers: {
+          'X-API-KEY' => SERPER_API_KEY,
+          'Content-Type' => 'application/json'
+        },
+        body: { q: query }.to_json,
+        timeout: 10
+      )
+      
+      return default_movie_data(title) unless response.success?
+      
+      results = JSON.parse(response.body)
+      extract_movie_info_from_results(title, results)
+    rescue => e
+      @logger.error "API error for #{title}: #{e.message}"
+      return default_movie_data(title)
+    end
+  end
+
+  def default_movie_data(title)
+    {
+      year: '2020',
+      genre: 'Drama',
+      director: 'Unknown Director',
+      cast: ['Actor 1', 'Actor 2', 'Actor 3'],
+      plot: "#{title} is an engaging movie with compelling storyline and great performances.",
+      duration: '120 min',
+      language: 'Hindi',
+      content_rating: 'U/A',
+      poster_url: nil,
+      watch_url: "https://shemaroome.com/movies/#{title.downcase.gsub(' ', '-')}"
+    }
   end
 
   def extract_movie_info_from_results(title, results)
@@ -57,7 +78,7 @@ class MovieBlogGenerator
       plot: extract_plot(text, title),
       duration: extract_duration(text),
       language: 'English',
-      content_rating: 'PG-13',
+      content_rating: 'U/A',
       poster_url: nil,
       watch_url: "https://shemaroome.com/movies/#{title.downcase.gsub(' ', '-')}"
     }
