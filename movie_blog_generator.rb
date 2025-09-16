@@ -162,6 +162,7 @@ class MovieBlogGenerator
         source: 'Public Review Database'
       }
     end
+    
     reviews
   end
 
@@ -179,8 +180,9 @@ class MovieBlogGenerator
     blog_dir = "movie_blogs"
     Dir.mkdir(blog_dir) unless Dir.exist?(blog_dir)
     
- #   MovieTheme.only(:title).limit(1).each do |movie|
-   MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie", :is_red_hot => false, :is_google_watch_feed => true).to_a.each do |movie|
+    #MovieTheme.only(:title).limit(1).each do |movie|
+    MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie", :is_red_hot => false, :is_google_watch_feed => true).to_a.each do |movie|
+
       @logger.info "Processing: #{movie.title}"
       
       # Search for movie details using Serper API
@@ -272,7 +274,19 @@ class MovieBlogGenerator
               #{movie_data[:poster_url] ? "<img src='#{movie_data[:poster_url]}' class='rounded-lg shadow-lg'>" : '<div class="bg-gray-200 h-96 rounded-lg flex items-center justify-center"><p class="text-gray-500">No Poster Available</p></div>'}
             </div>
             <div>
-              <p class="mb-4"><strong>Genre:</strong> #{movie_data[:genre]}</p>
+              <!-- Movie Details Tags -->
+              <div class="flex flex-wrap gap-2 mb-6">
+                <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">#{movie_data[:genre]}</span>
+                <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">#{movie_data[:duration]}</span>
+                <span class="bg-purple-100 text-purple-800 text-xs font-medium px-2.5 py-0.5 rounded-full">#{movie_data[:language]}</span>
+                <span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">#{movie_data[:content_rating]}</span>
+                <span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">4KUHD</span>
+              </div>
+              
+              <p class="mb-4"><strong>Duration:</strong> #{movie_data[:duration]}</p>
+              <p class="mb-4"><strong>Language:</strong> #{movie_data[:language]}</p>
+              <p class="mb-4"><strong>Rating:</strong> #{movie_data[:content_rating]}</p>
+              <p class="mb-4"><strong>Quality:</strong> 4KUHD</p>
               <p class="mb-4"><strong>Director:</strong> #{movie_data[:director]}</p>
               <p class="mb-4"><strong>Cast:</strong> #{movie_data[:cast].join(', ')}</p>
               <div class="mb-6">
@@ -280,7 +294,15 @@ class MovieBlogGenerator
                 <p>#{ai_content[:seo_synopsis] || movie_data[:plot]}</p>
               </div>
               #{ai_content[:why_watch] ? "<div class='mb-6'><h2 class='text-2xl font-bold mb-2'>Why You Should Watch</h2><p>#{ai_content[:why_watch]}</p></div>" : ''}
-              <a href="#{movie_data[:watch_url]}" class="bg-blue-600 text-white px-6 py-3 rounded-lg">Watch Now</a>
+              
+              <!-- Where to Watch Section -->
+              <div class="mb-6">
+                <h2 class="text-2xl font-bold mb-2">Where to Watch</h2>
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p class="text-blue-800 mb-3">Stream #{movie_data[:title]} exclusively on ShemarooMe</p>
+                  <a href="#{movie_data[:watch_url]}" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors">Watch Now on ShemarooMe</a>
+                </div>
+              </div>
             </div>
           </div>
           <div class="mt-12">
