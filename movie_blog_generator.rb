@@ -320,8 +320,12 @@ class MovieBlogGenerator
               <div class="mb-6">
                 <h2 class="text-2xl font-bold mb-2">Where to Watch</h2>
                 <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p class="text-blue-800 mb-3">Stream #{movie_data[:title]} exclusively on ShemarooMe</p>
-                  <a href="#{movie_data[:watch_url]}" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors">Watch Now on ShemarooMe</a>
+                  <p class="text-blue-800 mb-2">Stream #{movie_data[:title]} exclusively on ShemarooMe - India's premier entertainment streaming platform.</p>
+                  <p class="text-blue-700 text-sm mb-3">Experience unlimited access to thousands of movies, TV shows, web series, and original content across multiple languages. Watch anytime, anywhere on your smartphone, tablet, smart TV, or computer with crystal clear 4K Ultra HD quality, Dolby Atmos sound, and seamless streaming. Enjoy ad-free viewing with offline download options for on-the-go entertainment. ShemarooMe offers flexible subscription plans with exclusive premieres, behind-the-scenes content, and personalized recommendations tailored to your viewing preferences.</p>
+                  <div class="flex gap-3">
+                    <a href="#{movie_data[:watch_url]}" target="_blank" class="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex-1 text-center">🎬 Watch Now on ShemarooMe</a>
+                    <a href="https://shemaroome.com" target="_blank" class="inline-block bg-gray-600 text-white px-4 py-3 rounded-lg hover:bg-gray-700 transition-colors font-semibold">Explore Platform →</a>
+                  </div>
                 </div>
               </div>
             </div>
