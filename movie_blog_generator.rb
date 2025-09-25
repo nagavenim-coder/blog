@@ -18,6 +18,22 @@ class MovieTheme
     field :title, type: String
 end
 
+# Blog model for storing generated content
+class Blog
+    include Mongoid::Document
+    field :title, type: String
+    field :language, type: String
+    field :duration, type: String
+    field :rating, type: String
+    field :director, type: String
+    field :reviews, type: Array
+    field :synopsis, type: String
+    field :why_watch, type: String
+    field :where_watch, type: String
+    field :cast, type: Array
+    field :hash_tag, type: Array
+end
+
 
 class MovieBlogGenerator
   BEDROCK_MODEL_ID = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
@@ -191,41 +207,43 @@ class MovieBlogGenerator
     {
       why_watch: generate_why_watch(movie_data),
       seo_hashtags: generate_hashtags(movie_data),
-      seo_synopsis: rewrite_synopsis(movie_data)
+      seo_synopsis: rewrite_synopsis(movie_data),
+      where_to_watch: generate_where_to_watch(movie_data)
     }
   end
 
   def generate_blogs
-    @logger.info "Generating blog pages..."
+    @logger.info "Generating blog data..."
     
-    blog_dir = "movie_blogs"
-    Dir.mkdir(blog_dir) unless Dir.exist?(blog_dir)
-    
-    #MovieTheme.only(:title).limit(1).each do |movie|
-    MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie", :is_red_hot => false, :is_google_watch_feed => true).to_a.each do |movie|
+MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie" ).to_a..limit(1).each do |movie|
 
       @logger.info "Processing: #{movie.title}"
       
-      # Search for movie details using Serper API
       movie_data = search_movie_details(movie.title)
       movie_data[:title] = movie.title
       
       reviews = generate_reviews(movie_data)
       ai_content = enhance_with_ai(movie_data)
       
-      html = build_movie_blog(movie_data, reviews, ai_content)
-      filename = "#{movie.title.parameterize}-#{movie_data[:year]}.html"
-      File.write("#{blog_dir}/#{filename}", html)
+      Blog.create!(
+        title: movie_data[:title],
+        language: movie_data[:language],
+        duration: movie_data[:duration],
+        rating: movie_data[:content_rating],
+        director: movie_data[:director],
+        reviews: reviews,
+        synopsis: ai_content[:seo_synopsis] || movie_data[:plot],
+        why_watch: ai_content[:why_watch],
+        where_watch: ai_content[:where_to_watch],
+        cast: movie_data[:cast],
+        hash_tag: ai_content[:seo_hashtags] || []
+      )
       
-      @logger.info "Generated blog for: #{movie.title}"
-      sleep(3) # Rate limiting for API
+      @logger.info "Saved blog data for: #{movie.title}"
+      sleep(3)
     end
     
-    # Generate index
-    index_html = build_index_page
-    File.write("#{blog_dir}/index.html", index_html)
-    
-    @logger.info "All blogs saved in: #{blog_dir}"
+    @logger.info "All blog data saved to database"
   end
 
   def run_pipeline
@@ -255,6 +273,12 @@ class MovieBlogGenerator
     invoke_bedrock(prompt)
   end
 
+  def generate_where_to_watch(movie_data)
+    prompt = "Write a compelling 'Where to Watch' description for #{movie_data[:title]} on ShemarooMe streaming platform. Include platform benefits like 4K quality, unlimited access, multiple devices, offline viewing, and exclusive content. Keep it 100-150 words, promotional and engaging."
+    
+    invoke_bedrock(prompt)
+  end
+
   def invoke_bedrock(prompt)
     request = {
       anthropic_version: 'bedrock-2023-05-31',
@@ -272,97 +296,6 @@ class MovieBlogGenerator
   rescue => e
     @logger.error "Bedrock error: #{e.message}"
     nil
-  end
-
-  def build_movie_blog(movie_data, reviews, ai_content)
-    reviews_html = reviews.map do |review|
-      "<div class='bg-white rounded-lg shadow p-6 mb-4'><div class='flex justify-between items-center mb-2'><h4 class='font-bold text-lg'>#{review[:author]}</h4><span class='bg-yellow-500 text-white px-2 py-1 rounded'>#{review[:rating]}/5</span></div><p class='text-gray-700 mb-2'>#{review[:content]}</p><p class='text-sm text-gray-500'>Reviewed on #{review[:date]}</p></div>"
-    end.join
-
-    <<~HTML
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>#{movie_data[:title]} (#{movie_data[:year]})</title>
-        <meta name="description" content="Watch #{movie_data[:title]} (#{movie_data[:year]}) - #{movie_data[:genre]} movie">
-        <script src="https://cdn.tailwindcss.com"></script>
-      </head>
-      <body class="bg-gray-100">
-        <div class="container mx-auto p-8">
-          <h1 class="text-4xl font-bold mb-4">#{movie_data[:title]} (#{movie_data[:year]})</h1>
-          <div class="grid md:grid-cols-2 gap-8">
-            <div>
-              #{movie_data[:poster_url] ? "<img src='#{movie_data[:poster_url]}' class='rounded-lg shadow-lg'>" : '<div class="bg-gray-200 h-96 rounded-lg flex items-center justify-center"><p class="text-gray-500">No Poster Available</p></div>'}
-            </div>
-            <div>
-              <!-- Movie Details Tags -->
-              <div class="flex flex-wrap gap-2 mb-6">
-                <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">#{movie_data[:genre]}</span>
-                <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">#{movie_data[:duration]}</span>
-                <span class="bg-purple-100 text-purple-800 text-xs font-medium px-2.5 py-0.5 rounded-full">#{movie_data[:language]}</span>
-                <span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">#{movie_data[:content_rating]}</span>
-                <span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">4KUHD</span>
-              </div>
-              
-              <p class="mb-4"><strong>Duration:</strong> #{movie_data[:duration]}</p>
-              <p class="mb-4"><strong>Language:</strong> #{movie_data[:language]}</p>
-              <p class="mb-4"><strong>Rating:</strong> #{movie_data[:content_rating]}</p>
-              <p class="mb-4"><strong>Quality:</strong> 4KUHD</p>
-              <p class="mb-4"><strong>Director:</strong> #{movie_data[:director]}</p>
-              <p class="mb-4"><strong>Cast:</strong> #{movie_data[:cast].join(', ')}</p>
-              <div class="mb-6">
-                <h2 class="text-2xl font-bold mb-2">Synopsis</h2>
-                <p>#{ai_content[:seo_synopsis] || movie_data[:plot]}</p>
-              </div>
-              #{ai_content[:why_watch] ? "<div class='mb-6'><h2 class='text-2xl font-bold mb-2'>Why You Should Watch</h2><p>#{ai_content[:why_watch]}</p></div>" : ''}
-              
-              <!-- Where to Watch Section -->
-              <div class="mb-6">
-                <h2 class="text-2xl font-bold mb-2">Where to Watch</h2>
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p class="text-blue-800 mb-2">Stream #{movie_data[:title]} exclusively on ShemarooMe - India's premier entertainment streaming platform.</p>
-                  <p class="text-blue-700 text-sm mb-3">Experience unlimited access to thousands of movies, TV shows, web series, and original content across multiple languages. Watch anytime, anywhere on your smartphone, tablet, smart TV, or computer with crystal clear 4K Ultra HD quality, Dolby Atmos sound, and seamless streaming. Enjoy ad-free viewing with offline download options for on-the-go entertainment. ShemarooMe offers flexible subscription plans with exclusive premieres, behind-the-scenes content, and personalized recommendations tailored to your viewing preferences.</p>
-                  <div class="flex gap-3">
-                    <a href="#{movie_data[:watch_url]}" target="_blank" class="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex-1 text-center">🎬 Watch Now on ShemarooMe</a>
-                    <a href="https://shemaroome.com" target="_blank" class="inline-block bg-gray-600 text-white px-4 py-3 rounded-lg hover:bg-gray-700 transition-colors font-semibold">Explore Platform →</a>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="mt-12">
-            <h2 class="text-2xl font-bold mb-4">Reviews</h2>
-            #{reviews_html}
-          </div>
-          #{ai_content[:seo_hashtags]&.any? ? "<div class='mt-8'><h3 class='text-xl font-bold mb-2'>Hashtags</h3><p>#{ai_content[:seo_hashtags].join(' ')}</p></div>" : ''}
-        </div>
-      </body>
-      </html>
-    HTML
-  end
-
-  def build_index_page
-    movies_html = MovieTheme.only(:title).map do |movie|
-      "<div class='movie-card p-4 border rounded'><h3><a href='#{movie.title.parameterize}-2020.html'>#{movie.title}</a></h3><p>Movie Blog</p></div>"
-    end.join
-
-    <<~HTML
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>ShemarooMe Movie Blog</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-      </head>
-      <body class="bg-gray-100">
-        <div class="container mx-auto p-8">
-          <h1 class="text-4xl font-bold mb-8">ShemarooMe Movie Blog</h1>
-          <div class="grid md:grid-cols-3 gap-6">
-            #{movies_html}
-          </div>
-        </div>
-      </body>
-      </html>
-    HTML
   end
 
 end
