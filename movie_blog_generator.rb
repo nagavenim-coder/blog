@@ -80,7 +80,11 @@ class MovieBlogGenerator
       year: '2020',
       genre: 'Drama',
       director: 'Unknown Director',
-      cast: ['Actor 1', 'Actor 2', 'Actor 3'],
+      cast: [
+        { real_name: 'Actor 1', character_name: 'Character 1' },
+        { real_name: 'Actor 2', character_name: 'Character 2' },
+        { real_name: 'Actor 3', character_name: 'Character 3' }
+      ],
       plot: "#{title} is an engaging movie with compelling storyline and great performances.",
       duration: '120 min',
       language: 'Hindi',
@@ -247,7 +251,8 @@ class MovieBlogGenerator
     selected_reviews = public_reviews.sample(review_count)
     
     selected_reviews.each do |review_template|
-      actor = movie_data[:cast]&.sample&.dig(:real_name) || 'the lead actor'
+      cast_member = movie_data[:cast]&.sample
+      actor = cast_member.is_a?(Hash) ? cast_member[:real_name] : cast_member || 'the lead actor'
       rating = rand(review_template[:rating_range]).round(1)
       
       content = review_template[:content] % {
