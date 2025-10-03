@@ -76,15 +76,12 @@ class MovieBlogGenerator
   end
 
   def default_movie_data(title)
-    {
+    ai_data = generate_movie_data_with_ai(title)
+    ai_data || {
       year: '2020',
       genre: 'Drama',
       director: 'Unknown Director',
-      cast: [
-        { real_name: 'Actor 1', character_name: 'Character 1' },
-        { real_name: 'Actor 2', character_name: 'Character 2' },
-        { real_name: 'Actor 3', character_name: 'Character 3' }
-      ],
+      cast: generate_cast_with_ai(title),
       plot: "#{title} is an engaging movie with compelling storyline and great performances.",
       duration: '120 min',
       language: 'Hindi',
@@ -187,13 +184,9 @@ class MovieBlogGenerator
       end
     end
     
-    # Fallback if no cast found
+    # Fallback if no cast found - use AI to generate cast
     if cast_array.empty?
-      cast_array = [
-        { real_name: 'Actor 1', character_name: 'Character 1' },
-        { real_name: 'Actor 2', character_name: 'Character 2' },
-        { real_name: 'Actor 3', character_name: 'Character 3' }
-      ]
+      cast_array = generate_cast_with_ai(title)
     end
     
     cast_array
@@ -390,6 +383,58 @@ class MovieBlogGenerator
     
     response = invoke_bedrock(prompt)
     response&.split(',')&.map(&:strip) || []
+  end
+
+  def generate_cast_with_ai(title)
+    prompt = "Generate 3-5 realistic cast members for the movie '#{title}'. Return in format: Actor Name|Character Name, one per line. Example: John Smith|Detective Mike\nJane Doe|Sarah Wilson"
+    
+    response = invoke_bedrock(prompt)
+    return default_cast if response.nil?
+    
+    cast_array = []
+    response.split("\n").each do |line|
+      parts = line.split('|')
+      if parts.length == 2
+        cast_array << { real_name: parts[0].strip, character_name: parts[1].strip }
+      end
+    end
+    
+    cast_array.any? ? cast_array : default_cast
+  end
+
+  def default_cast
+    [
+      { real_name: 'Actor 1', character_name: 'Character 1' },
+      { real_name: 'Actor 2', character_name: 'Character 2' },
+      { real_name: 'Actor 3', character_name: 'Character 3' }
+    ]
+  end
+
+  def generate_movie_data_with_ai(title)
+    prompt = "Generate realistic movie data for '#{title}'. Return in JSON format with these exact keys: year, genre, director, plot, duration, language, content_rating. Example: {\"year\": \"2023\", \"genre\": \"Action\", \"director\": \"John Smith\", \"plot\": \"A thrilling story...\", \"duration\": \"120 min\", \"language\": \"English\", \"content_rating\": \"PG-13\"}"
+    
+    response = invoke_bedrock(prompt)
+    return nil unless response
+    
+    begin
+      data = JSON.parse(response)
+      cast = generate_cast_with_ai(title)
+      
+      {
+        year: data['year'] || '2020',
+        genre: data['genre'] || 'Drama',
+        director: data['director'] || 'Unknown Director',
+        cast: cast,
+        plot: data['plot'] || "#{title} is an engaging movie with compelling storyline and great performances.",
+        duration: data['duration'] || '120 min',
+        language: data['language'] || 'English',
+        content_rating: data['content_rating'] || 'U/A',
+        poster_url: nil,
+        watch_url: "https://shemaroome.com/movies/#{title.downcase.gsub(' ', '-')}"
+      }
+    rescue JSON::ParserError
+      nil
+    end
   end
 
   def invoke_bedrock(prompt)
