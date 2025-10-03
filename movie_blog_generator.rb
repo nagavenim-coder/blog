@@ -93,12 +93,13 @@ class MovieBlogGenerator
   def extract_movie_info_from_results(title, results)
     # Extract from search results
     text = results.dig('organic')&.first(3)&.map { |r| r['snippet'] }&.join(' ') || ''
+    cast_info = extract_cast_with_characters(text, title)
     
     {
       year: extract_year(text),
       genre: extract_genre(text),
       director: extract_director(text, title),
-      cast: extract_cast(text, title),
+      cast: cast_info,
       plot: extract_plot(text, title),
       duration: extract_duration(text),
       language: 'English',
@@ -125,10 +126,73 @@ class MovieBlogGenerator
     match ? match[1] : 'Unknown Director'
   end
 
-  def extract_cast(text, title)
-    # Look for actor names (capitalized words)
-    actors = text.scan(/\b[A-Z][a-z]+ [A-Z][a-z]+\b/).uniq.first(5)
-    actors.any? ? actors : ['Actor 1', 'Actor 2', 'Actor 3']
+  def extract_cast_with_characters(text, title)
+    cast_array = []
+    
+    # Pattern 1: "Name as Character" or "Name plays Character"
+    as_matches = text.scan(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*?)\s+(?:as|plays)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i)
+    as_matches.each do |real_name, char_name|
+      cast_array << { real_name: real_name.strip, character_name: char_name.strip }
+    end
+    
+    # Pattern 2: Enhanced general cast extraction
+    actors = []
+    
+    # "starring" or "stars" followed by names
+    starring_match = text.match(/(?:starring|stars?)\s+([^.]+)/i)
+    if starring_match
+      names = starring_match[1].split(/,|\sand\s|\s&\s/).map(&:strip)
+      actors.concat(names.select { |name| name.match?(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/) })
+    end
+    
+    # "cast includes" or "featuring"
+    cast_match = text.match(/(?:cast includes?|featuring)\s+([^.]+)/i)
+    if cast_match
+      names = cast_match[1].split(/,|\sand\s|\s&\s/).map(&:strip)
+      actors.concat(names.select { |name| name.match?(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/) })
+    end
+    
+    # General capitalized names (2-3 words)
+    general_names = text.scan(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b/)
+    actors.concat(general_names)
+    
+    # Clean and deduplicate
+    actors = actors.uniq.reject { |name| 
+      name.downcase.include?(title.downcase) || 
+      name.match?(/^(the|and|with|by|in|of|a|an)$/i) ||
+      name.length < 4
+    }.first(5)
+    
+    # Add remaining actors to cast_array if not already present
+    existing_real_names = cast_array.map { |c| c[:real_name] }
+    actors.each do |actor|
+      unless existing_real_names.include?(actor)
+        cast_array << { real_name: actor, character_name: nil }
+      end
+    end
+    
+    # Generate character names using AI for entries without character names
+    missing_char_actors = cast_array.select { |c| c[:character_name].nil? }.map { |c| c[:real_name] }
+    if missing_char_actors.any?
+      char_names = generate_character_names(title, missing_char_actors)
+      if char_names
+        missing_char_actors.each_with_index do |actor, index|
+          cast_entry = cast_array.find { |c| c[:real_name] == actor }
+          cast_entry[:character_name] = char_names[index] || "Character #{index + 1}"
+        end
+      end
+    end
+    
+    # Fallback if no cast found
+    if cast_array.empty?
+      cast_array = [
+        { real_name: 'Actor 1', character_name: 'Character 1' },
+        { real_name: 'Actor 2', character_name: 'Character 2' },
+        { real_name: 'Actor 3', character_name: 'Character 3' }
+      ]
+    end
+    
+    cast_array
   end
 
   def extract_plot(text, title)
@@ -183,7 +247,7 @@ class MovieBlogGenerator
     selected_reviews = public_reviews.sample(review_count)
     
     selected_reviews.each do |review_template|
-      actor = movie_data[:cast]&.sample || 'the lead actor'
+      actor = movie_data[:cast]&.sample&.dig(:real_name) || 'the lead actor'
       rating = rand(review_template[:rating_range]).round(1)
       
       content = review_template[:content] % {
@@ -307,6 +371,20 @@ class MovieBlogGenerator
     prompt = "Write a compelling 'Where to Watch' description for #{movie_data[:title]} on ShemarooMe streaming platform. Include platform benefits like 4K quality, unlimited access, multiple devices, offline viewing, and exclusive content. Keep it 100-150 words, promotional and engaging."
     
     invoke_bedrock(prompt)
+  end
+
+  def generate_quality(movie_data)
+    prompt = "Determine the video quality for #{movie_data[:title]} (#{movie_data[:year]}) movie. Return only one of these options: HD, 4K, or UHD based on the movie's production year and typical quality standards."
+    
+    response = invoke_bedrock(prompt)
+    response&.strip || "HD"
+  end
+
+  def generate_character_names(title, real_names)
+    prompt = "For the movie '#{title}', generate character names for these actors: #{real_names.join(', ')}. Return only character names separated by commas, no explanations."
+    
+    response = invoke_bedrock(prompt)
+    response&.split(',')&.map(&:strip) || []
   end
 
   def invoke_bedrock(prompt)
