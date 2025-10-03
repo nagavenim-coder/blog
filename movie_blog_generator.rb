@@ -19,21 +19,29 @@ class MovieTheme
 end
 
 # Blog model for storing generated content
-class Blog
-    include Mongoid::Document
-    field :title, type: String
-    field :language, type: String
-    field :duration, type: String
-    field :rating, type: String
-    field :director, type: String
-    field :reviews, type: Array
-    field :synopsis, type: String
-    field :why_watch, type: String
-    field :where_watch, type: String
-    field :cast, type: Array
-    field :hash_tag, type: Array
-end
 
+class Blog
+  include Mongoid::Document
+  include Mongoid::Timestamps
+  store_in client: "catalog"
+
+  field :theme, type: String
+  field :theme_id, type: String
+  field :title, type: String
+  field :language, type: String
+  field :duration, type: String
+  field :rating, type: String
+  field :quality, type: String
+  field :director, type: String
+  field :cast, type: Array, default: []
+  field :synopsis, type: String
+  field :why_watch, type: String
+  field :where_watch, type: String
+  field :reviews, type: Array, default: []
+  field :hash_tag, type: Array, default: []
+  validates :theme_id, presence: true, uniqueness: { message: "Theme ID must be unique" }
+
+end
 
 class MovieBlogGenerator
   BEDROCK_MODEL_ID = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
@@ -208,14 +216,24 @@ class MovieBlogGenerator
       why_watch: generate_why_watch(movie_data),
       seo_hashtags: generate_hashtags(movie_data),
       seo_synopsis: rewrite_synopsis(movie_data),
-      where_to_watch: generate_where_to_watch(movie_data)
+      where_to_watch: generate_where_to_watch(movie_data),
+      quality: generate_quality(movie_data)
     }
   end
+
+  def generate_quality(movie_data)
+    prompt = "Determine the video quality for #{movie_data[:title]} (#{movie_data[:year]}) movie. Return only one of these options: HD, 4K, or UHD based on the movie's production year and typical quality standards."
+
+    response = invoke_bedrock(prompt)
+    response&.strip || "HD"
+  end
+
+
 
   def generate_blogs
     @logger.info "Generating blog data..."
     
-MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie" ).to_a..limit(1).each do |movie|
+    MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie" ).offset(400).limit(100).to_a.each do |movie|
 
       @logger.info "Processing: #{movie.title}"
       
@@ -224,23 +242,35 @@ MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_
       
       reviews = generate_reviews(movie_data)
       ai_content = enhance_with_ai(movie_data)
-      
-      Blog.create!(
-        title: movie_data[:title],
-        language: movie_data[:language],
-        duration: movie_data[:duration],
-        rating: movie_data[:content_rating],
-        director: movie_data[:director],
-        reviews: reviews,
-        synopsis: ai_content[:seo_synopsis] || movie_data[:plot],
-        why_watch: ai_content[:why_watch],
-        where_watch: ai_content[:where_to_watch],
-        cast: movie_data[:cast],
-        hash_tag: ai_content[:seo_hashtags] || []
-      )
-      
-      @logger.info "Saved blog data for: #{movie.title}"
-      sleep(3)
+
+
+       blog = Blog.find_or_initialize_by(title: movie.title)
+      blog.assign_attributes(
+         theme: "movie",
+         theme_id: movie.id.to_s,
+         title: movie_data[:title],
+         language: movie_data[:language],
+         duration: movie_data[:duration],
+         rating: movie_data[:content_rating],
+         quality: ai_content[:quality] || "HD",
+         director: movie_data[:director],
+         reviews: reviews,
+         synopsis: ai_content[:seo_synopsis] || movie_data[:plot],
+         why_watch: ai_content[:why_watch],
+         where_watch: ai_content[:where_to_watch],
+         cast: movie_data[:cast],
+         hash_tag: ai_content[:seo_hashtags] || []
+     )
+
+   if blog.new_record?
+     @logger.info "Creating new blog for #{movie.title}"
+   else
+     @logger.info "Updating existing blog for #{movie.title}"
+  end
+
+   blog.save!
+    @logger.info "blog db---------#{blog.inspect}"
+    sleep(3)
     end
     
     @logger.info "All blog data saved to database"
