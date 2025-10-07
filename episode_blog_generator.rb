@@ -326,7 +326,6 @@ class MovieBlogGenerator
 
 
        blog = Blog.find_or_initialize_by(title: movie.title)
-   if blog.blank?
       blog.assign_attributes(
          theme: "episode",
          theme_id: movie.id.to_s,
@@ -353,7 +352,6 @@ class MovieBlogGenerator
    blog.save!
     @logger.info "blog db---------#{blog.inspect}"
     sleep(3)
-    end
     end
   end
     
