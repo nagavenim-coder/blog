@@ -313,13 +313,8 @@ class MovieBlogGenerator
     @logger.info "Generating blog data..."
     ShowTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978").to_a.each do |s|
 
-    EpisodeTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie" ).to_a.each do |movie|
 
-
-
-
-
-
+   EpisodeTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978",:show_name => s.title).to_a.each do |m|
 
       @logger.info "Processing: #{movie.title}"
       
