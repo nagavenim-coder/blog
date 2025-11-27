@@ -16,6 +16,8 @@ class MovieTheme
     include Mongoid::Document
     store_in client: "catalog"
     field :title, type: String
+    field :language, type: String
+    field :release_date_string, type: String
 end
 
 # Blog model for storing generated content
@@ -52,8 +54,22 @@ class MovieBlogGenerator
     @bedrock = Aws::BedrockRuntime::Client.new(region: 'us-east-1')
   end
 
-  def search_movie_details(title)
-    query = "#{title} movie plot cast director year genre"
+  def extract_year_from_movie_theme(movie_theme)
+    return nil unless movie_theme&.release_date_string
+    
+    # Extract year from various date formats
+    year_match = movie_theme.release_date_string.match(/(19|20)\d{2}/)
+    year_match ? year_match[0] : nil
+  end
+
+  def search_movie_with_theme(movie_theme)
+    year = extract_year_from_movie_theme(movie_theme)
+    language = movie_theme.language || 'English'
+    search_movie_details(movie_theme.title, year, language)
+  end
+
+  def search_movie_details(title, year = nil, language = "English")
+    query = year ? "\"#{title}\" #{year} movie cast starring actors" : "\"#{title}\" movie cast starring actors"
     
     begin
       response = HTTParty.post('https://google.serper.dev/search',
@@ -65,23 +81,23 @@ class MovieBlogGenerator
         timeout: 10
       )
       
-      return default_movie_data(title) unless response.success?
+      return default_movie_data(title, year) unless response.success?
       
       results = JSON.parse(response.body)
-      extract_movie_info_from_results(title, results)
+      extract_movie_info_from_results(title, results, year)
     rescue => e
       @logger.error "API error for #{title}: #{e.message}"
       return default_movie_data(title)
     end
   end
 
-  def default_movie_data(title)
-    ai_data = generate_movie_data_with_ai(title)
+  def default_movie_data(title, year = nil)
+    ai_data = generate_movie_data_with_ai(title, year)
     ai_data || {
-      year: '2020',
+      year: year || '2020',
       genre: 'Drama',
       director: 'Unknown Director',
-      cast: generate_cast_with_ai(title),
+      cast: generate_cast_with_ai(title, year),
       plot: "#{title} is an engaging movie with compelling storyline and great performances.",
       duration: '120 min',
       language: 'Hindi',
@@ -91,13 +107,39 @@ class MovieBlogGenerator
     }
   end
 
-  def extract_movie_info_from_results(title, results)
+  def generate_movie_data_with_ai(title, year = nil)
+    prompt = "Provide accurate information for the movie '#{title}'#{year ? " (#{year})" : ''}. Include: director, genre, plot summary, duration, language, rating."
+    
+    begin
+      response = @bedrock.invoke_model({
+        model_id: BEDROCK_MODEL_ID,
+        content_type: 'application/json',
+        body: {
+          anthropic_version: 'bedrock-2023-05-31',
+          max_tokens: 300,
+          messages: [{ role: 'user', content: prompt }]
+        }.to_json
+      })
+      
+      result = JSON.parse(response.body.read)
+      content = result.dig('content', 0, 'text') || ''
+      
+      # Parse AI response and return structured data
+      # This is a simplified version - you can enhance parsing logic
+      nil # Return nil to use default for now
+    rescue => e
+      @logger.error "AI movie data generation error: #{e.message}"
+      nil
+    end
+  end
+
+  def extract_movie_info_from_results(title, results, year = nil)
     # Extract from search results
     text = results.dig('organic')&.first(3)&.map { |r| r['snippet'] }&.join(' ') || ''
     cast_info = extract_cast_with_characters(text, title)
     
     {
-      year: extract_year(text),
+      year: year || extract_year(text),
       genre: extract_genre(text),
       director: extract_director(text, title),
       cast: cast_info,
@@ -130,63 +172,65 @@ class MovieBlogGenerator
   def extract_cast_with_characters(text, title)
     cast_array = []
     
-    # Pattern 1: "Name as Character" or "Name plays Character"
-    as_matches = text.scan(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*?)\s+(?:as|plays)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i)
-    as_matches.each do |real_name, char_name|
-      cast_array << { real_name: real_name.strip, character_name: char_name.strip }
-    end
+    # More specific patterns for cast extraction
+    cast_patterns = [
+      /(?:starring|stars?)\s+([^.!?]+)/i,
+      /(?:cast|actors?)\s*:?\s*([^.!?]+)/i,
+      /(?:featuring|with)\s+([^.!?]+)/i,
+      /([A-Z][a-z]+\s+[A-Z][a-z]+)\s+(?:as|plays)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i
+    ]
     
-    # Pattern 2: Enhanced general cast extraction
     actors = []
     
-    # "starring" or "stars" followed by names
-    starring_match = text.match(/(?:starring|stars?)\s+([^.]+)/i)
-    if starring_match
-      names = starring_match[1].split(/,|\sand\s|\s&\s/).map(&:strip)
-      actors.concat(names.select { |name| name.match?(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/) })
-    end
-    
-    # "cast includes" or "featuring"
-    cast_match = text.match(/(?:cast includes?|featuring)\s+([^.]+)/i)
-    if cast_match
-      names = cast_match[1].split(/,|\sand\s|\s&\s/).map(&:strip)
-      actors.concat(names.select { |name| name.match?(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/) })
-    end
-    
-    # General capitalized names (2-3 words)
-    general_names = text.scan(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b/)
-    actors.concat(general_names)
-    
-    # Clean and deduplicate
-    actors = actors.uniq.reject { |name| 
-      name.downcase.include?(title.downcase) || 
-      name.match?(/^(the|and|with|by|in|of|a|an)$/i) ||
-      name.length < 4
-    }.first(5)
-    
-    # Add remaining actors to cast_array if not already present
-    existing_real_names = cast_array.map { |c| c[:real_name] }
-    actors.each do |actor|
-      unless existing_real_names.include?(actor)
-        cast_array << { real_name: actor, character_name: nil }
-      end
-    end
-    
-    # Generate character names using AI for entries without character names
-    missing_char_actors = cast_array.select { |c| c[:character_name].nil? }.map { |c| c[:real_name] }
-    if missing_char_actors.any?
-      char_names = generate_character_names(title, missing_char_actors)
-      if char_names
-        missing_char_actors.each_with_index do |actor, index|
-          cast_entry = cast_array.find { |c| c[:real_name] == actor }
-          cast_entry[:character_name] = char_names[index] || "Character #{index + 1}"
+    cast_patterns.each do |pattern|
+      matches = text.scan(pattern)
+      matches.each do |match|
+        if match.is_a?(Array) && match.length == 2
+          # "Actor as Character" pattern
+          cast_array << { real_name: match[0].strip, character_name: match[1].strip }
+        else
+          # Extract actor names from cast list
+          names = match.to_s.split(/,|\sand\s|\s&\s|\swith\s/).map(&:strip)
+          names.each do |name|
+            clean_name = name.gsub(/^(and|with|also|including)\s+/i, '').strip
+            if clean_name.match?(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}$/) && clean_name.length > 4
+              actors << clean_name
+            end
+          end
         end
       end
     end
     
-    # Fallback if no cast found - use AI to generate cast
+    # Clean and filter actors
+    actors = actors.uniq.reject { |name| 
+      name.downcase.include?(title.downcase) || 
+      name.match?(/^(the|and|with|by|in|of|a|an|also|including)$/i) ||
+      name.length < 5 ||
+      name.match?(/\d/) # Reject names with numbers
+    }.first(4)
+    
+    # Add actors without character names
+    existing_names = cast_array.map { |c| c[:real_name] }
+    actors.each do |actor|
+      unless existing_names.include?(actor)
+        cast_array << { real_name: actor, character_name: nil }
+      end
+    end
+    
+    # If still no cast found, use AI as fallback
     if cast_array.empty?
-      cast_array = generate_cast_with_ai(title)
+      cast_array = generate_cast_with_ai(title, extract_year(text))
+    else
+      # Generate character names for actors without them
+      missing_chars = cast_array.select { |c| c[:character_name].nil? }
+      if missing_chars.any?
+        char_names = generate_character_names(title, missing_chars.map { |c| c[:real_name] })
+        if char_names
+          missing_chars.each_with_index do |cast_entry, index|
+            cast_entry[:character_name] = char_names[index] || "Character #{index + 1}"
+          end
+        end
+      end
     end
     
     cast_array
@@ -201,6 +245,73 @@ class MovieBlogGenerator
   def extract_duration(text)
     match = text.match(/(\d+)\s*(?:min|minutes|hrs?|hours?)/i)
     match ? "#{match[1]} min" : '120 min'
+  end
+
+  def generate_cast_with_ai(title, year = nil)
+    prompt = "List the main cast of the movie '#{title}'#{year ? " (#{year})" : ''}. Provide only real actor names in this format: Actor Name|Character Name. Maximum 4 actors."
+    
+    begin
+      response = @bedrock.invoke_model({
+        model_id: BEDROCK_MODEL_ID,
+        content_type: 'application/json',
+        body: {
+          anthropic_version: 'bedrock-2023-05-31',
+          max_tokens: 200,
+          messages: [{ role: 'user', content: prompt }]
+        }.to_json
+      })
+      
+      result = JSON.parse(response.body.read)
+      content = result.dig('content', 0, 'text') || ''
+      
+      cast_array = []
+      content.split("\n").each do |line|
+        if line.include?('|')
+          parts = line.split('|').map(&:strip)
+          cast_array << { real_name: parts[0], character_name: parts[1] }
+        elsif line.match?(/^[A-Z][a-z]+\s+[A-Z][a-z]+/)
+          cast_array << { real_name: line.strip, character_name: nil }
+        end
+      end
+      
+      cast_array.empty? ? default_cast : cast_array
+    rescue => e
+      @logger.error "AI cast generation error: #{e.message}"
+      default_cast
+    end
+  end
+
+  def generate_character_names(title, actor_names)
+    return nil if actor_names.empty?
+    
+    prompt = "For the movie '#{title}', what character names do these actors play: #{actor_names.join(', ')}? Provide only character names, one per line."
+    
+    begin
+      response = @bedrock.invoke_model({
+        model_id: BEDROCK_MODEL_ID,
+        content_type: 'application/json',
+        body: {
+          anthropic_version: 'bedrock-2023-05-31',
+          max_tokens: 150,
+          messages: [{ role: 'user', content: prompt }]
+        }.to_json
+      })
+      
+      result = JSON.parse(response.body.read)
+      content = result.dig('content', 0, 'text') || ''
+      
+      content.split("\n").map(&:strip).reject(&:empty?)
+    rescue => e
+      @logger.error "Character name generation error: #{e.message}"
+      nil
+    end
+  end
+
+  def default_cast
+    [
+      { real_name: 'Lead Actor', character_name: 'Main Character' },
+      { real_name: 'Lead Actress', character_name: 'Female Lead' }
+    ]
   end
 
   def generate_reviews(movie_data)
@@ -297,9 +408,11 @@ class MovieBlogGenerator
     
     MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie" ).offset(400).limit(100).to_a.each do |movie|
 
-      @logger.info "Processing: #{movie.title}"
+      @logger.info "Processing: #{movie}"
+     year = movie.release_date_string.to_date.year
+     lang = movie.language || "Hindi"
       
-      movie_data = search_movie_details(movie.title)
+      movie_data = search_movie_details(movie.title, year, lang)
       movie_data[:title] = movie.title
       
       reviews = generate_reviews(movie_data)
