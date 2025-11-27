@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+require 'csv'
+require 'ostruct'
 require 'logger'
 require 'active_support'
 require 'mongoid'
