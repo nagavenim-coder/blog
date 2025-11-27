@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+require 'parallel'
 require 'csv'
 require 'ostruct'
 require 'logger'
@@ -344,10 +345,11 @@ class MovieBlogGenerator
 
   def generate_blogs
     @logger.info "Generating blog data..."
-    
-    MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie" ).offset(400).limit(100).to_a.each do |movie|
+    movies =    MovieTheme.where(status: "published", business_group_id: "548343938", app_ids: "350502978", episode_type: "movie").order(created_at: :desc).offset(50)
+    Parallel.each(movies, in_processes: 10) do |movie|
+#    MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie").order(created_at: :desc).offset(10).limit(40).to_a.each do |movie|
 
-      @logger.info "Processing: #{movie}"
+      @logger.info "Processing: #{movie.inspect}"
      year = movie.release_date_string.to_date.year
      lang = movie.language || "Hindi"
       

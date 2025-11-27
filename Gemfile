@@ -8,4 +8,5 @@ gem 'nokogiri'
 gem 'aws-sdk-bedrockruntime'
 gem 'csv'
 gem 'ostruct'
-gem 'active_support'
+gem 'parallel'
+
