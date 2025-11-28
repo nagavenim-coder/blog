@@ -1,4 +1,6 @@
 #!/usr/bin/env ruby
+require 'csv'
+require 'ostruct'
 require 'logger'
 require 'active_support'
 require 'mongoid'
@@ -11,12 +13,14 @@ require 'aws-sdk-bedrockruntime'
 # Configure Mongoid
 Mongoid.load!('/home/ubuntu/blog/mongoid.yml', :development)
 
-# Movie model - read-only (only title)
+# Show model - read-only (only title)
 class ShowTheme
     include Mongoid::Document
     include Mongoid::Timestamps
     store_in client: "catalog"
     field :title, type: String
+    field :language, type: String
+    field :release_date_string, type: String
 end
 
 # Blog model for storing generated content
@@ -53,8 +57,22 @@ class MovieBlogGenerator
     @bedrock = Aws::BedrockRuntime::Client.new(region: 'us-east-1')
   end
 
-  def search_movie_details(title)
-    query = "#{title} movie plot cast director year genre"
+  def extract_year_from_show_theme(show_theme)
+    return nil unless show_theme&.release_date_string
+    
+    # Extract year from various date formats
+    year_match = show_theme.release_date_string.match(/(19|20)\d{2}/)
+    year_match ? year_match[0] : nil
+  end
+
+  def search_show_with_theme(show_theme)
+    year = extract_year_from_show_theme(show_theme)
+    language = show_theme.language || 'English'
+    search_movie_details(show_theme.title, year, language)
+  end
+
+  def search_movie_details(title, year = nil, language = "English")
+    query = year ? "\"#{title}\" #{year} #{language} show series cast starring actors" : "\"#{title}\" #{language} show series cast starring actors"
     
     begin
       response = HTTParty.post('https://google.serper.dev/search',
@@ -66,45 +84,45 @@ class MovieBlogGenerator
         timeout: 10
       )
       
-      return default_movie_data(title) unless response.success?
+      return default_movie_data(title, year, language) unless response.success?
       
       results = JSON.parse(response.body)
-      extract_movie_info_from_results(title, results)
+      extract_movie_info_from_results(title, results, year, language)
     rescue => e
       @logger.error "API error for #{title}: #{e.message}"
-      return default_movie_data(title)
+      return default_movie_data(title, year, language)
     end
   end
 
-  def default_movie_data(title)
-    ai_data = generate_movie_data_with_ai(title)
+  def default_movie_data(title, year = nil, language = "English")
+    ai_data = generate_movie_data_with_ai(title, year, language)
     ai_data || {
-      year: '2020',
+      year: year || '2020',
       genre: 'Drama',
       director: 'Unknown Director',
-      cast: generate_cast_with_ai(title),
-      plot: "#{title} is an engaging movie with compelling storyline and great performances.",
-      duration: '120 min',
-      language: 'Hindi',
+      cast: generate_cast_with_ai(title, year, language),
+      plot: "#{title} is an engaging show with compelling storyline and great performances.",
+      duration: '45 min',
+      language: language,
       content_rating: 'U/A',
       poster_url: nil,
-      watch_url: "https://shemaroome.com/movies/#{title.downcase.gsub(' ', '-')}"
+      watch_url: "https://shemaroome.com/shows/#{title.downcase.gsub(' ', '-')}"
     }
   end
 
-  def extract_movie_info_from_results(title, results)
+  def extract_movie_info_from_results(title, results, year = nil, language = "English")
     # Extract from search results
     text = results.dig('organic')&.first(3)&.map { |r| r['snippet'] }&.join(' ') || ''
-    cast_info = extract_cast_with_characters(text, title)
+    cast_info = extract_cast_with_characters(text, title, year, language)
     
     {
-      year: extract_year(text),
+      year: year || extract_year(text),
       genre: extract_genre(text),
       director: extract_director(text, title),
       cast: cast_info,
       plot: extract_plot(text, title),
       duration: extract_duration(text),
-      language: 'English',
+      language: language,
       content_rating: 'U/A',
       poster_url: nil,
       watch_url: "https://shemaroome.com/shows/#{title.downcase.gsub(' ', '-')}"
@@ -128,7 +146,7 @@ class MovieBlogGenerator
     match ? match[1] : 'Unknown Director'
   end
 
-  def extract_cast_with_characters(text, title)
+  def extract_cast_with_characters(text, title, year = nil, language = "English")
     cast_array = []
     
     # Pattern 1: "Name as Character" or "Name plays Character"
@@ -187,7 +205,7 @@ class MovieBlogGenerator
     
     # Fallback if no cast found - use AI to generate cast
     if cast_array.empty?
-      cast_array = generate_cast_with_ai(title)
+      cast_array = generate_cast_with_ai(title, year || extract_year(text), language)
     end
     
     cast_array
@@ -296,23 +314,25 @@ class MovieBlogGenerator
   def generate_blogs
     @logger.info "Generating blog data..."
     
-    ShowTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978").offset(100).limit(100).to_a.each do |movie|
+    ShowTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978").offset(100).limit(100).to_a.each do |show|
 
-      @logger.info "Processing: #{movie.title}"
+      @logger.info "Processing: #{show.title}"
+      year = show.release_date_string ? extract_year_from_show_theme(show) : nil
+      lang = show.language || "English"
       
-      movie_data = search_movie_details(movie.title)
-      movie_data[:title] = movie.title
+      movie_data = search_movie_details(show.title, year, lang)
+      movie_data[:title] = show.title
       
       reviews = generate_reviews(movie_data)
       ai_content = enhance_with_ai(movie_data)
 
 
-       blog = Blog.find_or_initialize_by(title: movie.title)
+       blog = Blog.find_or_initialize_by(title: show.title)
        @logger.info "blog-------------#{blog.inspect}-----#{movie_data.inspect}"
 
       blog.assign_attributes(
          theme: "show",
-         theme_id: movie.id.to_s,
+         theme_id: show.id.to_s,
          title: movie_data[:title],
          language: movie_data[:language],
          duration: movie_data[:duration],
@@ -328,9 +348,9 @@ class MovieBlogGenerator
      )
 
    if blog.new_record?
-     @logger.info "Creating new blog for #{movie.title}"
+     @logger.info "Creating new blog for #{show.title}"
    else
-     @logger.info "Updating existing blog for #{movie.title}"
+     @logger.info "Updating existing blog for #{show.title}"
   end
 
    blog.save!
@@ -388,17 +408,19 @@ class MovieBlogGenerator
     response&.split(',')&.map(&:strip) || []
   end
 
-  def generate_cast_with_ai(title)
-    prompt = "Generate 3-5 realistic cast members for the movie '#{title}'. Return in format: Actor Name|Character Name, one per line. Example: John Smith|Detective Mike\nJane Doe|Sarah Wilson"
+  def generate_cast_with_ai(title, year = nil, language = "English")
+    prompt = "List the main cast of the #{language} show/series '#{title}'#{year ? " (#{year})" : ''}. Provide only real actor names in this format: Actor Name|Character Name. Maximum 4 actors."
     
     response = invoke_bedrock(prompt)
     return default_cast if response.nil?
     
     cast_array = []
     response.split("\n").each do |line|
-      parts = line.split('|')
-      if parts.length == 2
-        cast_array << { real_name: parts[0].strip, character_name: parts[1].strip }
+      if line.include?('|')
+        parts = line.split('|').map(&:strip)
+        cast_array << { real_name: parts[0], character_name: parts[1] }
+      elsif line.match?(/^[A-Z][a-z]+\s+[A-Z][a-z]+/)
+        cast_array << { real_name: line.strip, character_name: nil }
       end
     end
     
@@ -413,27 +435,27 @@ class MovieBlogGenerator
     ]
   end
 
-  def generate_movie_data_with_ai(title)
-    prompt = "Generate realistic movie data for '#{title}'. Return in JSON format with these exact keys: year, genre, director, plot, duration, language, content_rating. Example: {\"year\": \"2023\", \"genre\": \"Action\", \"director\": \"John Smith\", \"plot\": \"A thrilling story...\", \"duration\": \"120 min\", \"language\": \"English\", \"content_rating\": \"PG-13\"}"
+  def generate_movie_data_with_ai(title, year = nil, language = "English")
+    prompt = "Generate realistic show/series data for the #{language} show '#{title}'#{year ? " (#{year})" : ''}. Return in JSON format with these exact keys: year, genre, director, plot, duration, language, content_rating. Example: {\"year\": \"2023\", \"genre\": \"Drama\", \"director\": \"John Smith\", \"plot\": \"A thrilling story...\", \"duration\": \"45 min\", \"language\": \"English\", \"content_rating\": \"PG-13\"}"
     
     response = invoke_bedrock(prompt)
     return nil unless response
     
     begin
       data = JSON.parse(response)
-      cast = generate_cast_with_ai(title)
+      cast = generate_cast_with_ai(title, year, language)
       
       {
-        year: data['year'] || '2020',
+        year: year || data['year'] || '2020',
         genre: data['genre'] || 'Drama',
         director: data['director'] || 'Unknown Director',
         cast: cast,
-        plot: data['plot'] || "#{title} is an engaging movie with compelling storyline and great performances.",
-        duration: data['duration'] || '120 min',
-        language: data['language'] || 'English',
+        plot: data['plot'] || "#{title} is an engaging show with compelling storyline and great performances.",
+        duration: data['duration'] || '45 min',
+        language: language || data['language'] || 'English',
         content_rating: data['content_rating'] || 'U/A',
         poster_url: nil,
-        watch_url: "https://shemaroome.com/movies/#{title.downcase.gsub(' ', '-')}"
+        watch_url: "https://shemaroome.com/shows/#{title.downcase.gsub(' ', '-')}"
       }
     rescue JSON::ParserError
       nil
