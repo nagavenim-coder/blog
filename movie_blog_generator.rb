@@ -257,34 +257,40 @@ class MovieBlogGenerator
   def generate_reviews(movie_data)
     public_reviews = [
       {
-        author: 'FilmCritic42',
-        rating_range: (3.5..5.0),
-        content: 'A masterpiece of %{genre} cinema. The direction is impeccable, and the performances, especially by %{actor}, are outstanding. The story flows naturally and keeps you engaged throughout its runtime.',
-        sentiment: 'positive'
-      },
-      {
-        author: 'MovieBuff99',
+        author: 'CinemaLover',
         rating_range: (4.0..5.0),
-        content: 'One of the best %{genre} films I\'ve seen in years. %{director}\'s vision shines through in every scene. The cinematography is breathtaking, and the score perfectly complements the narrative.',
+        content: 'Absolutely stunning %{genre} masterpiece! %{actor} delivers a career-defining performance that will leave you speechless. The cinematography is breathtaking, and every frame is crafted with artistic precision. Pure cinematic gold!',
         sentiment: 'positive'
       },
       {
-        author: 'CinemaEnthusiast',
-        rating_range: (3.0..4.5),
-        content: 'A solid %{genre} film that delivers what it promises. %{actor}\'s performance is the highlight, bringing depth to an otherwise standard character. The pacing is good, though some scenes could have been tightened.',
+        author: 'FilmFanatic',
+        rating_range: (3.8..5.0),
+        content: 'This %{genre} film is everything I hoped for and more! %{director}\'s direction is flawless, bringing out incredible performances from the entire cast. %{actor} absolutely shines in every scene. A must-watch!',
         sentiment: 'positive'
       },
       {
-        author: 'ScreenTime',
-        rating_range: (2.0..3.5),
-        content: 'An average %{genre} movie with some memorable moments. The plot is somewhat predictable, but %{actor} manages to elevate the material. The direction by %{director} is competent if not particularly innovative.',
+        author: 'MovieExpert',
+        rating_range: (3.5..4.8),
+        content: 'Captivating from start to finish! %{actor} brings such depth and authenticity to their role. The %{genre} elements are perfectly executed, creating an unforgettable cinematic experience. Highly recommended!',
+        sentiment: 'positive'
+      },
+      {
+        author: 'CinemaReview',
+        rating_range: (2.5..3.8),
+        content: 'Solid %{genre} film with some genuinely impressive moments. %{actor} gives a commendable performance, and the production values are noteworthy. While not groundbreaking, it\'s definitely worth your time.',
         sentiment: 'neutral'
       },
       {
-        author: 'ReelReviewer',
-        rating_range: (1.5..3.0),
-        content: 'A disappointing entry in the %{genre} category. Despite %{actor}\'s best efforts, the script lacks coherence and the direction feels uninspired. Some good ideas get lost in the execution.',
+        author: 'FilmCritic',
+        rating_range: (2.0..3.2),
+        content: 'Had high expectations for this %{genre} movie, but it doesn\'t quite hit the mark. %{actor} tries their best with the material, but the script feels uneven. Some good moments that needed stronger execution.',
         sentiment: 'negative'
+      },
+      {
+        author: 'MovieMagic',
+        rating_range: (4.2..5.0),
+        content: 'Exceptional filmmaking that showcases the best of %{genre} cinema! %{actor}\'s performance is absolutely mesmerizing, and the storytelling is top-notch. This is why I love great movies!',
+        sentiment: 'positive'
       }
     ]
     
@@ -305,9 +311,9 @@ class MovieBlogGenerator
         director: movie_data[:director] || 'the director'
       }
       
-      if rand > 0.7
-        suffix = review_template[:sentiment] == 'positive' ? 'one to miss' : 'not one to miss'
-        content += " '#{movie_data[:title]}' is #{suffix}."
+      if rand > 0.6
+        suffix = review_template[:sentiment] == 'positive' ? 'a cinematic masterpiece' : 'worth skipping'
+        content += " '#{movie_data[:title]}' is definitely #{suffix}."
       end
       
       review_date = rand(1..365).days.ago.strftime('%Y-%m-%d')
@@ -401,26 +407,26 @@ class MovieBlogGenerator
   private
 
   def generate_why_watch(movie_data)
-    prompt = "Write a compelling 'Why You Should Watch' section for #{movie_data[:title]} (#{movie_data[:year]}). Genre: #{movie_data[:genre]}. Plot: #{movie_data[:plot]}. Keep it 150-200 words, engaging and professional."
+    prompt = "Rephrase the text with a natural, human touch like a skilled scriptwriter refining the tone after understanding the context. Keep it engaging, expressive, smooth, and perfectly SEO-optimized for search. Do not add any introductions, summaries, explanations, or prefacing lines. Only return the rewritten version.\n\nWrite a compelling 'Why You Should Watch' section for the #{movie_data[:language]} movie #{movie_data[:title]} (#{movie_data[:year]}). Genre: #{movie_data[:genre]}. Make it sound like a passionate film enthusiast recommending their favorite movie. Use conversational tone, highlight unique aspects, emotional hooks, and what makes it unforgettable. 150-200 words."
     
     invoke_bedrock(prompt)
   end
 
   def generate_hashtags(movie_data)
-    prompt = "Generate 15-20 SEO hashtags for #{movie_data[:title]} (#{movie_data[:year]}) #{movie_data[:genre]} movie for ShemarooMe platform. Return only hashtags separated by spaces."
+    prompt = "Generate 18-20 trending SEO hashtags for the #{movie_data[:language]} movie #{movie_data[:title]} (#{movie_data[:year]}) #{movie_data[:genre]} film on ShemarooMe platform. Mix popular movie-specific tags, genre tags, platform tags, and trending cinema hashtags. Return only hashtags separated by spaces, no explanations."
     
     response = invoke_bedrock(prompt)
     response&.split&.select { |tag| tag.start_with?('#') }&.first(20)
   end
 
   def rewrite_synopsis(movie_data)
-    prompt = "Rewrite this movie synopsis to be SEO-friendly and engaging: #{movie_data[:plot]}. Movie: #{movie_data[:title]} (#{movie_data[:year]}). Keep it 50-100 words."
+    prompt = "Rephrase the text with a natural, human touch like a skilled scriptwriter refining the tone after understanding the context. Keep it engaging, expressive, smooth, and perfectly SEO-optimized for search. Do not add any introductions, summaries, explanations, or prefacing lines. Only return the rewritten version.\n\nRewrite this movie synopsis to be captivating and SEO-friendly: #{movie_data[:plot]}. Movie: #{movie_data[:title]} (#{movie_data[:year]}). Make it sound thrilling and must-watch. Use active voice, emotional hooks, and compelling cinematic language. 80-120 words."
     
     invoke_bedrock(prompt)
   end
 
   def generate_where_to_watch(movie_data)
-    prompt = "Write a compelling 'Where to Watch' description for #{movie_data[:title]} on ShemarooMe streaming platform. Include platform benefits like 4K quality, unlimited access, multiple devices, offline viewing, and exclusive content. Keep it 100-150 words, promotional and engaging."
+    prompt = "Rephrase the text with a natural, human touch like a skilled scriptwriter refining the tone after understanding the context. Keep it engaging, expressive, smooth, and perfectly SEO-optimized for search. Do not add any introductions, summaries, explanations, or prefacing lines. Only return the rewritten version.\n\nWrite an exciting 'Where to Watch' description for #{movie_data[:title]} on ShemarooMe streaming platform. Sound like an enthusiastic cinema expert recommending the best way to watch. Highlight exclusive access, premium quality, convenience, and cinematic experience. Make viewers excited to subscribe. 120-150 words, conversational and persuasive."
     
     invoke_bedrock(prompt)
   end
