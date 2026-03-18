@@ -307,53 +307,55 @@ class MovieBlogGenerator
     response&.strip || "HD"
   end
 
-
-
   def generate_blogs
     @logger.info "Generating blog data..."
-    ShowTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978").to_a.each do |s|
+    ShowTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978").offset(0).limit(30).each do |s|
 
-    EpisodeTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978",:show_name => s.title).to_a.each do |movie|
+      EpisodeTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978",:show_theme_id => s.id.to_s).each do |movie|
+
+        @logger.info "Processing: #{movie.title}"
+
+        bl = Blog.find_by(theme_id: movie.id.to_s)
+        unless bl.present?
+          movie_data = search_movie_details(movie.title,s["friendly_id"])
+          movie_data[:title] = movie.title
+
+          reviews = generate_reviews(movie_data)
+          ai_content = enhance_with_ai(movie_data)
 
 
-      @logger.info "Processing: #{movie.title}"
-      
-      movie_data = search_movie_details(movie.title,s["friendly_id"])
-      movie_data[:title] = movie.title
-      
-      reviews = generate_reviews(movie_data)
-      ai_content = enhance_with_ai(movie_data)
+          blog = Blog.find_or_initialize_by(title: movie.title)
+          blog.assign_attributes(
+            theme: "episode",
+            theme_id: movie.id.to_s,
+            title: movie_data[:title],
+            language: movie_data[:language],
+            duration: movie_data[:duration],
+            rating: movie_data[:content_rating],
+            quality: ai_content[:quality] || "HD",
+            director: movie_data[:director],
+            reviews: reviews,
+            synopsis: ai_content[:seo_synopsis] || movie_data[:plot],
+            why_watch: ai_content[:why_watch],
+            where_watch: ai_content[:where_to_watch],
+            cast: movie_data[:cast],
+            hash_tag: ai_content[:seo_hashtags] || []
+          )
 
+          if blog.new_record?
+            @logger.info "Creating new blog for #{movie.title}"
+          else
+            @logger.info "Updating existing blog for #{movie.title}"
+          end
 
-       blog = Blog.find_or_initialize_by(title: movie.title)
-      blog.assign_attributes(
-         theme: "episode",
-         theme_id: movie.id.to_s,
-         title: movie_data[:title],
-         language: movie_data[:language],
-         duration: movie_data[:duration],
-         rating: movie_data[:content_rating],
-         quality: ai_content[:quality] || "HD",
-         director: movie_data[:director],
-         reviews: reviews,
-         synopsis: ai_content[:seo_synopsis] || movie_data[:plot],
-         why_watch: ai_content[:why_watch],
-         where_watch: ai_content[:where_to_watch],
-         cast: movie_data[:cast],
-         hash_tag: ai_content[:seo_hashtags] || []
-     )
-
-   if blog.new_record?
-     @logger.info "Creating new blog for #{movie.title}"
-   else
-     @logger.info "Updating existing blog for #{movie.title}"
-  end
-
-   blog.save!
-    @logger.info "blog db---------#{blog.inspect}"
-    sleep(3)
+          blog.save!
+          @logger.info "blog db---------#{blog.inspect}"
+          #sleep(3)
+        else
+          puts "Blog Data Exists === #{movie.title}"
+        end
+      end
     end
-  end
     
     @logger.info "All blog data saved to database"
   end
@@ -408,7 +410,8 @@ class MovieBlogGenerator
   def generate_cast_with_ai(title)
     prompt = "Generate 3-5 realistic cast members for the movie '#{title}'. Return in format: Actor Name|Character Name, one per line. Example: John Smith|Detective Mike\nJane Doe|Sarah Wilson"
     
-    response = invoke_bedrock(prompt)
+    #response = invoke_bedrock(prompt)
+    response = nil
     return default_cast if response.nil?
     
     cast_array = []

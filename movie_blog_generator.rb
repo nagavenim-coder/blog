@@ -347,52 +347,52 @@ class MovieBlogGenerator
     response&.strip || "HD"
   end
 
-
-
   def generate_blogs
     @logger.info "Generating blog data..."
-    movies =    MovieTheme.where(status: "published", business_group_id: "548343938", app_ids: "350502978", episode_type: "movie").order(created_at: :desc).offset(50)
+    movies =    MovieTheme.where(status: "published", business_group_id: "548343938", app_ids: "350502978", episode_type: "movie").order(created_at: :desc).offset(0).limit(50)
     Parallel.each(movies, in_processes: 10) do |movie|
-#    MovieTheme.where(:status => "published",:business_group_id => "548343938", :app_ids => "350502978", :episode_type => "movie").order(created_at: :desc).offset(10).limit(40).to_a.each do |movie|
-
       @logger.info "Processing: #{movie.inspect}"
-     year = movie.release_date_string.to_date.year
-     lang = movie.language || "Hindi"
-      
-      movie_data = search_movie_details(movie.title, year, lang)
-      movie_data[:title] = movie.title
-      
-      reviews = generate_reviews(movie_data)
-      ai_content = enhance_with_ai(movie_data)
+      year = movie.release_date_string.to_date.year
+      lang = movie.language || "Hindi"
 
+      bl = Blog.find_by(theme_id:movie.id.to_s)
+      unless bl.present?
+        movie_data = search_movie_details(movie.title, year, lang)
+        movie_data[:title] = movie.title
 
-       blog = Blog.find_or_initialize_by(title: movie.title)
-      blog.assign_attributes(
-         theme: "movie",
-         theme_id: movie.id.to_s,
-         title: movie_data[:title],
-         language: movie_data[:language],
-         duration: movie_data[:duration],
-         rating: movie_data[:content_rating],
-         quality: ai_content[:quality] || "HD",
-         director: movie_data[:director],
-         reviews: reviews,
-         synopsis: ai_content[:seo_synopsis] || movie_data[:plot],
-         why_watch: ai_content[:why_watch],
-         where_watch: ai_content[:where_to_watch],
-         cast: movie_data[:cast],
-         hash_tag: ai_content[:seo_hashtags] || []
-     )
+        reviews = generate_reviews(movie_data)
+        ai_content = enhance_with_ai(movie_data)
 
-   if blog.new_record?
-     @logger.info "Creating new blog for #{movie.title}"
-   else
-     @logger.info "Updating existing blog for #{movie.title}"
-  end
+        blog = Blog.find_or_initialize_by(title: movie.title)
+        blog.assign_attributes(
+            theme: "movie",
+            theme_id: movie.id.to_s,
+            title: movie_data[:title],
+            language: movie_data[:language],
+            duration: movie_data[:duration],
+            rating: movie_data[:content_rating],
+            quality: ai_content[:quality] || "HD",
+            director: movie_data[:director],
+            reviews: reviews,
+            synopsis: ai_content[:seo_synopsis] || movie_data[:plot],
+            why_watch: ai_content[:why_watch],
+            where_watch: ai_content[:where_to_watch],
+            cast: movie_data[:cast],
+            hash_tag: ai_content[:seo_hashtags] || []
+        )
 
-   blog.save!
-    @logger.info "blog db---------#{blog.inspect}"
-    sleep(3)
+        if blog.new_record?
+        @logger.info "Creating new blog for #{movie.title}"
+        else
+        @logger.info "Updating existing blog for #{movie.title}"
+        end
+
+        blog.save!
+        @logger.info "blog db---------#{blog.inspect}"
+        #sleep(3)
+      else
+        puts "Blog Data Exists === #{movie.title}"
+      end
     end
     
     @logger.info "All blog data saved to database"
@@ -448,7 +448,8 @@ class MovieBlogGenerator
   def generate_cast_with_ai(title, year = nil, language = "English")
     prompt = "List the main cast of the #{language} movie '#{title}'#{year ? " (#{year})" : ''}. Provide only real actor names in this format: Actor Name|Character Name. Maximum 4 actors."
     
-    response = invoke_bedrock(prompt)
+    #response = invoke_bedrock(prompt)
+    response = nil
     return default_cast if response.nil?
     
     cast_array = []
