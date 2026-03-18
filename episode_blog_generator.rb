@@ -309,15 +309,16 @@ class MovieBlogGenerator
 
   def generate_blogs
     @logger.info "Generating blog data..."
-    ShowTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978").offset(0).limit(30).each do |s|
+    #ShowTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978").offset(0).limit(30).each do |s|
 
-      EpisodeTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978",:show_theme_id => s.id.to_s).each do |movie|
+      # EpisodeTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978",:show_theme_id => s.id.to_s).each do |movie|
+      EpisodeTheme.where(:status => "published",:business_group_id => "548343938",:app_ids => "350502978").offset(0).limit(100).each do |movie|
 
         @logger.info "Processing: #{movie.title}"
 
         bl = Blog.find_by(theme_id: movie.id.to_s)
         unless bl.present?
-          movie_data = search_movie_details(movie.title,s["friendly_id"])
+          movie_data = search_movie_details(movie.title, movie.show_name.to_url)
           movie_data[:title] = movie.title
 
           reviews = generate_reviews(movie_data)
@@ -355,7 +356,7 @@ class MovieBlogGenerator
           puts "Blog Data Exists === #{movie.title}"
         end
       end
-    end
+    #end
     
     @logger.info "All blog data saved to database"
   end
