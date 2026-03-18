@@ -324,7 +324,7 @@ class MovieBlogGenerator
       year = show.release_date_string ? extract_year_from_show_theme(show) : nil
       lang = show.language || "English"
 
-      bl = Blog.find_by(content_id: show.id.to_s)
+      bl = Blog.find_by(theme_id: show.id.to_s)
       unless bl.present?
         movie_data = search_movie_details(show.title, year, lang)
         movie_data[:title] = show.title
@@ -366,7 +366,7 @@ class MovieBlogGenerator
         puts "Blog Data Exists === #{movie.title}"
       end
     end
-          
+
     @logger.info "All blog data saved to database"
   end
 
